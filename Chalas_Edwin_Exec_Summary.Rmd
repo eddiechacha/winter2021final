@@ -1,0 +1,131 @@
+---
+title: "Which model predicts stocks best?"
+author: "Edwin Chalas Cuevas"
+date: "2/17/2021"
+output:
+   html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidymodels)
+library(tidyverse)
+library(lubridate)
+library(numbers)
+
+set.seed(123)
+```
+
+## Overview
+
+One of the most tantalizing challenges in modeling is trying to model stock prices - the more accurately you can predict a normally unpredictable marketplace, the more great trades you can make that could lead to financial success.
+
+In this project, I'll do this on a smaller and more narrow scale. 
+
+By doing this, we can answer one key question in creating a highly accurate stock model - which model should you use?
+
+## Key questions
+
+- What model (linear regression, boosted tree, nearest neighbors) provides the most accurate predictions for the percent change in stock price across the S&P 500?
+
+- What model (linear regression, boosted tree, nearest neighbors) provides the most accurate predictions for the percent change, in each sector?
+
+## Setting everything up
+
+The models I'm using for this EDA are:
+
+- A simple linear regression model, using the "lm" engine,
+- a boosted tree algorithmic model, using the "xgboost" engine,
+- and a k-nearest neighbors model, using the "kknn" engine.
+
+To apply these three models to each of the 500 companies, we have to set up:
+
+- A function, that takes a company and a model as an input, and then runs the best version of that model (based on the model's RMSE value) on the company's stock data. This function then returns the mean absolute error, or the average difference between the predicted percent change and the company's actual percent change in 2017.
+- A for loop, which will put every company & model combination through the above function, and will output that combination's mean absolute error.
+
+Then, we'll filter the data to only get the most accurate company-model combinations (by looking at the combos with the lowest mean absolute error). Once we have that, we can graph the results on a sector-by-sector basis, and the results looking at the stock index overall.
+
+## Results
+
+```{r, Cleaning up the results and creating a neat graph, message=FALSE}
+
+#importing the data from the previous R chunk
+compare_models <- read_rds("data/processed/compare_models.rds")
+company_names <- read_csv("data/unprocessed/constituents.csv")
+
+#selecting only the winning models (which model had the smallest average percent difference between real and predicted values)
+
+#used rmse for model comparison
+#mean absolute error to assess model
+
+final_results <- compare_models %>%
+    group_by(X.Company.name.) %>%
+    filter(X0 == min(X0))
+
+#renaming the variables so they have less gross names
+final_results <- final_results %>% rename("avg_dif" = X0, "ticker" = X.Company.name., "model" = X.Model.)
+
+#joining results with dataset that contains sector information
+final_results <- inner_join(final_results, company_names, 
+                       c("ticker" = "Symbol"))
+
+#creating percent information based on sectors
+final_results_sector <- final_results %>%
+  group_by(Sector, model) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+#creating percent information based on the entire dataset
+final_results_ind <- final_results %>%
+  group_by(model) %>% 
+  summarise(count = n()) %>% 
+  mutate(perc = count/sum(count))
+
+#graphing our results
+
+#overall
+ggplot(final_results_ind, aes(factor(model),y = perc*100, fill = factor(model))) +
+  geom_bar(stat = "Identity") +
+  labs(x = "Model type", y = "Percent", fill = "model", title = "The best model for stock price predictions?", subtitle = "Index-wide") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(size = 8)) +
+  coord_flip()
+
+#by sector
+ggplot(final_results_sector, aes(factor(Sector),y = perc*100, fill = factor(model))) +
+  geom_bar(stat = "Identity") +
+  labs(x = "Sector", y = "Percent", fill = "model", title = "The best model for stock price predictions?", subtitle = "Sector by sector") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(size = 8)) +
+  coord_flip()
+
+```
+
+## Answering our key questions
+
+- What model (linear regression, boosted tree, nearest neighbors) provides the most accurate predictions for the percent change in stock price across the S&P 500?
+
+Believe it or not, a simple linear regression model was actually the most accurate for most stocks overall, with about 42% of stocks benefiting from that. The nearest neighbor model type was the second most accurate, with 37% of stocks benefiting, while the boosted tree model type is at a distant third with about 21% of stocks.
+
+- What model (linear regression, boosted tree, nearest neighbors) provides the most accurate predictions for the percent change, in each sector?
+
+Nearest neighbors won out in the sectors of Utilities, Financials, Health Care, and Consumer Staples. Linear Regression won out in the sectors of Real Estate, Materials, Information Technology, Energy, and Communication Services. In the sector of Consumer Discretionary, nearest neighbors and linear regression are seemingly neck and neck, though linear regression won there as well.
+
+The final score for nearest neighbor is 4/11 sectors, while linear regression won with wins in the other 7/11 sectors. Boosted tree failed to win in any of the sectors.
+
+## Conclusion
+
+So what does this all mean? 
+
+- At least 42% of stocks aren't that unpredictable - as simple linear regression was able to predict the percent change of the stock relatively accurately
+- The remaining 58% of stocks can't be as easily predicted, and require more advanced algorithms like boosted tree or nearest neighbors to get reasonably accurate predictions.
+
+In conclusion, this EDA shows that there is no one-size fits all approach for predicting stocks. On an individual company basis, the results vary widely, and even looking at a more macro level, there is no obvious choice. This is important information to take into consideration as robo-advisors running on algorithms become more popular - predicting the unpredictable is no easy task.
+
+## Data citations
+
+"**S&P 500 stock data**" by Cam Nugent, uploaded on kaggle.com: [S&P 500 stock data \| Kaggle](https://www.kaggle.com/camnugent/sandp500)
+
+"**S&P 500 Companies with Financial Information**" by by Datahub.io: [Datahhub](https://datahub.io/core/s-and-p-500-companies)

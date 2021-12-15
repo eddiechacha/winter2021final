@@ -1,0 +1,50 @@
+---
+title: "Chalas_Edwin_Data_Memo"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Edwin Chalas Cuevas' Final Project Data Memo
+
+For my final project, I'll create a model based on historical S&P 500 data, and try to see how closely I can predict the market. Big goal, I know.
+
+I've found two datasets that have historical information on both the S&P 500 index itself (going back to its inception) and the 500 companies that made it up from February 2013 to February 2018.
+
+### Data Source
+
+The former dataset is a "core" dataset on datahub.io - "Standard and Poor's (S&P) 500 Index Data including Dividend, Earnings and P/E Ratio": [Standard and Poor's (S&P) 500 Index Data including Dividend, Earnings and P/E Ratio - Dataset - DataHub - Frictionless Data](https://datahub.io/core/s-and-p-500#r). 
+
+COMPANY NAMES: https://github.com/datasets/s-and-p-500-companies/blob/master/data/constituents.csv
+
+### Why this data
+
+My hope is that with five years of data (02/2013 to 02/2018) on the index as a whole and the 500 companies within it, I can create a model and then compare estimated share prices for the then future (2018-2019) with the real deal (I'm not sure if I need to specify data for that as well).
+
+Ultimately, I'd be interested to see how close or far off my model is - with the random events of COVID and the Gamestop situation, I don't expect the models to be truly useful for present day predictions - but I'll get some insights into what creating these models is like.
+
+### Potential data issues
+
+First concern is that the Kaggle dataset doesn't include all the S&P 500 companies that were in the index from 2013-2018 - just the ones that were still there on the last data entry. If major companies fell off or were put on partway through the process, I'm not sure how that would affect a model.
+
+I'm also concerned about splitting the data for the model - I wonder if this data is enough to be split multiple ways and still be a decent model.
+
+I also don't really know of the top of my head how I'll combine all this data - I'll have 501 csv files to deal with (one for each company and another for the index). In addition, while the overall stock index data is detailed, the individual data for the 500 companies individually is simple - just the open and closing price of each along with a date. I'm not sure how well a model will work with such detailed data on one end but such blunt data on the other.
+
+### Questions I'd like to answer
+
+Using the model to predict the S&P 500's stock price for the month of March 2018 - how close is it to the real numbers?
+
+-   How about March 2019?
+
+-   March 2020?
+
+-   In summary, does the model get less accurate at predicting the index as a whole, as time goes on?
+
+Picking a random company on the index, do the same predictions for them.
+
+-   How close is the predicted price to the real price in March 2018, 2019, and 2020?
+
+-   How much more inaccurate (or accurate) is the model on an individual stock level versus an index wide level?

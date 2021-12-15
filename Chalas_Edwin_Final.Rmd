@@ -1,0 +1,190 @@
+---
+title: "Final Project"
+author: "Edwin Chalas Cuevas"
+date: "2/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidymodels)
+library(tidyverse)
+library(lubridate)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r, Data Import & Overview}
+#converting to dates
+#sp500_companies <- read_csv("data/all_stocks_5yr.csv")
+
+#sp500_total <- read_csv("data/data_csv.csv")
+
+#dividing the dates into chunks
+
+#sp500_companies <- sp500_companies %>% 
+#  separate(date, into = c("year", "month", "day"), sep = "-")
+
+#sp500_total <- sp500_total %>% 
+#  separate(Date, into = c("year", "month", "day"), sep = "-")
+
+#write_rds(sp500_total, "data/processed/sp500_total.rds")
+#write_rds(sp500_companies, "data/processed/sp500_companies.rds")
+
+#company_names <- read_csv("data/constituents.csv")
+
+#joining the companies data with the names data
+
+#sp500_companies <- inner_join(sp500_companies, company_names, 
+#                       c("Name" = "Symbol"))
+
+#filtering out data that's not in our timespan
+
+#sp500_companies <- sp500_companies %>%
+#  filter(year >= 2013 | month >= 02) %>%
+#  filter(year <= 2018 | month >= 02)
+
+#sp500_total <- sp500_total %>%
+#  filter(year >= 2013 | month >= 02) %>%
+#  filter(year <= 2018 | month >= 02)
+
+#write_rds(sp500_total, "data/processed/sp500_total.rds")
+#write_rds(sp500_companies, "data/processed/sp500_companies.rds")
+
+sp500_total <- read_rds("data/processed/sp500_total.rds")
+sp500_companies <- read_rds("data/processed/sp500_companies.rds")
+
+#checking to see that everything looks OK
+
+sp500_companies %>%
+  skimr::skim_without_charts()
+
+#no missing values
+
+sp500_total %>%
+  skimr::skim_without_charts()
+
+#some missing values - but only 10 total in the entire set.
+
+#doing some graphs to see general trends in normality
+
+ggplot(data = sp500_total, aes(x = SP500)) +
+  geom_density()
+
+#the S&P 500 as a whole is just slightly skewed
+
+ggplot(data = sp500_companies, aes(x = close)) +
+  geom_density()
+
+#as expected, the individual company data is extremely skewed (it being 500 seperate companies, this is to be expected)
+
+#the random company we'll be focusing on is AAL - American Airlines Group. 
+
+aal_data <- sp500_companies %>%
+  filter(Name == "AAL")
+  
+ggplot(data = aal_data, aes(x = close)) +
+  geom_density()
+```
+
+## Setting the Model Up
+
+```{r, Setting the Model Up}
+
+#splitting the S&P 500 data
+
+sp_data <- sp500_total %>%
+  select(-c(year, month, day)) %>%
+  mutate(SP500 = log(SP500))
+
+sp_split <- sp_data %>%
+  initial_split(prop = .8, strata = SP500)
+
+sp_train <- training(sp_split)
+
+sp_test <- testing(sp_split)
+
+ggplot(data = sp_train, aes(x = SP500)) +
+  geom_density()
+
+#splitting the AAL data
+
+aal_data <- sp500_companies %>%
+  filter(Name == "AAL") %>%
+  select(-c(year, month, day, Name, Name.y, Sector.x, Name.y.y, Sector.y)) %>%
+  mutate(close = log(close))
+
+aal_split <- aal_data %>%
+  initial_split(prop = .8, strata = close)
+
+aal_train <- training(aal_split)
+
+aal_test <- testing(aal_split)
+
+ggplot(data = aal_train, aes(x = close)) +
+  geom_density()
+
+#folding the data
+
+sp_folds <- vfold_cv(sp_train, v = 5, repeats = 3)
+
+aal_folds <- vfold_cv(aal_train, v = 5, repeats = 3)
+
+sp_recipe <- recipe(SP500 ~ ., data = sp_train) %>%
+#center and scaling
+step_center(all_predictors()) %>%
+step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+prep(sp_recipe) %>%
+  juice()
+#if there was no basement log 0 made it into -Inf which may or may not be an issue
+
+aal_recipe <- recipe(close ~ ., data = aal_train) %>%
+#center and scaling
+step_center(all_predictors()) %>%
+step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+prep(aal_recipe) %>%
+  juice()
+#if there was no basement log 0 made it into -Inf which may or may not be an issue
+
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+
+sp_workflow <- workflow() %>%
+  add_recipe(sp_recipe) %>%
+  add_model(lm_model)
+
+sp_fit <- fit_resamples(sp_workflow, sp_folds)
+
+collect_metrics(sp_fit)
+
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+
+aal_workflow <- workflow() %>%
+  add_recipe(aal_recipe) %>%
+  add_model(lm_model)
+
+aal_fit <- fit_resamples(aal_workflow, aal_folds)
+
+collect_metrics(aal_fit)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

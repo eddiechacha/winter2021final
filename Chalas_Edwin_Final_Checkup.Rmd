@@ -1,0 +1,562 @@
+---
+title: "Final Project"
+author: "Edwin Chalas Cuevas"
+date: "2/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidymodels)
+library(tidyverse)
+library(lubridate)
+library(kknn)
+library(xgboost)
+library(numbers)
+```
+
+## Original memo summary
+
+For my final project, I'll create a model based on historical S&P 500 data, and try to see how closely I can predict the market. Big goal, I know.
+
+I've found two datasets that have historical information on both the S&P 500 index itself (going back to its inception) and the 500 companies that made it up from February 2013 to February 2018.
+
+## Changes from the memo
+
+- The S&P 500 individual company data had a giant dataset with all of the company data, removing the issue of importing 500 different .csvs. 
+
+- I may change the time period focus of the project - the code below has it as 02/2013 to 02/2018, but I may in fact limit it to 02/2013 to 02/2017 (five years) and then use the 2018 data to compare predictions to. This way I may not have to find separate S&P 500 data (which proved difficult to find in an actual data file for anything in the last few years)
+
+## Things I'm still figuring out
+
+- I initially intended to combine the individual company data with the broader S&P 500 data - but the broader data is on a monthly basis versus the company data being on an almost daily basis. I may have to do some averaging of company data over the month if I want to go down the combined route (which may not be too useful since that would limit the dataset 12-fold). Or I could do the total S&P 500 as a separate model with not a lot of data for analysis.
+
+- What I'll likely end up doing is throwing out the total S&P 500 analysis and instead do models based on specific industries. I found a dataset with S&P 500 company names and industries on GitHub (COMPANY NAMES: https://github.com/datasets/s-and-p-500-companies/blob/master/data/constituents.csv) which will allow me to ask questions referring to hypothetical stocks in certain fields over time instead of focusing on just individual companies (this isn't reflected in the code below). I still think doing a random individual company would be good but I'm interested in seeing how the industry path goes.
+
+- I don't know just yet whether to toss the dates after using them to filter out points outside my time window (as it is below) - especially if I plan on graphing a modeled price prediction over time. Lubridate has been annoying in processing the dates
+
+## Answering specific questions
+
+- YES, I do have time-dependent data, but (see above) I'm not sure how much that'll play into my actual model just yet.
+
+- YES, I will do an initial split, at the very least with the company data because the data set is so large. With the total data I don't think I will if I go down the route of having that as a separate model from the company data - on its own the data set is small. 
+
+- I AM UNSURE about how I'll stratify the models just yet.
+
+Anyways, here's proof that the data does do data stuff:
+
+## Setting up the data
+
+```{r, Data Import & Overview, message=FALSE}
+#converting to dates
+#sp500_companies <- read_csv("data/all_stocks_5yr.csv")
+
+#sp500_total <- read_csv("data/data_csv.csv")
+
+#dividing the dates into chunks
+
+#sp500_companies <- sp500_companies %>%
+  #date = as.Date(date) %>%
+  #mutate(date = ymd(date))
+  #separate(date, into = c("year", "month", "day"), sep = "-")
+
+#sp500_total <- sp500_total %>%
+  #mutate(date = ymd(Date)) 
+  #separate(Date, into = c("year", "month", "day"), sep = "-")
+
+#write_rds(sp500_total, "data/processed/sp500_total.rds")
+#write_rds(sp500_companies, "data/processed/sp500_companies.rds")
+
+#company_names <- read_csv("data/constituents.csv")
+
+#joining the companies data with the names data
+
+#sp500_companies <- inner_join(sp500_companies, company_names, 
+#                       c("Name" = "Symbol"))
+
+#filtering out data that's not in our timespan
+
+#sp500_comp_compare <- sp500_companies %>%
+#  filter(year(date) == 2017) 
+
+#sp500_companies <- sp500_companies %>%
+#  filter(year(date) > 2012) %>%
+#  filter(year(date) < 2017)
+
+#sp500_total_compare <- sp500_total %>%
+#  filter(year(date) == 2017)
+
+#sp500_total <- sp500_total %>%
+#  filter(year(date) > 2012) %>%
+#  filter(year(date) < 2017)
+
+#write_rds(sp500_total, "data/processed/sp500_total.rds")
+#write_rds(sp500_companies, "data/processed/sp500_companies.rds")
+#write_rds(sp500_total_compare, "data/processed/sp500_total_compare.rds")
+#write_rds(sp500_comp_compare, "data/processed/sp500_comp_compare.rds")
+
+#2013 DATA STARTS IN FEBRUARY - HAVE TO CHANGE DATA REGION  
+  
+sp500_total <- read_rds("data/processed/sp500_total.rds")
+sp500_companies <- read_rds("data/processed/sp500_companies.rds")
+sp500_comp_compare <- read_rds("data/processed/sp500_comp_compare.rds")
+sp500_total_compare <- read_rds("data/processed/sp500_total_compare.rds")
+
+#checking to see that everything looks OK
+
+sp500_companies %>%
+  skimr::skim_without_charts()
+
+#no missing values
+
+sp500_total %>%
+  select(-Date) %>%
+  skimr::skim_without_charts()
+
+#some missing values - but only 10 total in the entire set.
+
+#doing some graphs to see general trends in normality
+
+#the S&P 500 as a whole is just slightly skewed
+
+```
+
+## Setting the Model Up
+
+```{r, Setting the Model Up}
+
+#splitting the S&P 500 data
+
+sp_data <- sp500_total %>%
+  select(-c(year, month, day)) #%>%
+  #mutate(SP500 = log(SP500))
+
+sp_split <- sp_data %>%
+  initial_split(prop = .75, strata = SP500)
+
+sp_train <- training(sp_split)
+
+sp_test <- testing(sp_split)
+
+ggplot(data = sp_train, aes(x = SP500)) +
+  geom_density()
+
+#splitting the AAL data
+
+#aal_data <- sp500_companies %>%
+#  filter(Name == "AAL") %>%
+#  select(-c(year, month, day, Name, Name.y, Sector.x, Name.y.y, Sector.y)) %>%
+#  mutate(close = log(close))
+
+#aal_split <- aal_data %>%
+#  initial_split(prop = .8, strata = close)
+
+#aal_train <- training(aal_split)
+
+#aal_test <- testing(aal_split)
+
+#ggplot(data = aal_train, aes(x = close)) +
+#  geom_density()
+
+#folding the data
+
+#sp_folds <- vfold_cv(sp_train, v = 5, repeats = 3)
+
+#aal_folds <- vfold_cv(aal_train, v = 5, repeats = 3)
+
+sp_recipe <- recipe(SP500 ~ ., data = sp_train) %>%
+#center and scaling
+step_center(all_predictors()) %>%
+step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+#prep(sp_recipe) %>%
+#  juice()
+#if there was no basement log 0 made it into -Inf which may or may not be an issue
+
+#aal_recipe <- recipe(close ~ ., data = aal_train) %>%
+#center and scaling
+#step_center(all_predictors()) %>%
+#step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+#prep(aal_recipe) %>%
+#  juice()
+#if there was no basement log 0 made it into -Inf which may or may not be an issue
+
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+
+bt_model <- boost_tree() %>%
+  set_engine("xgboost")
+
+sp_workflow <- workflow() %>%
+  add_recipe(sp_recipe) %>%
+  add_model(lm_model)
+
+#sp_fit <- fit_resamples(sp_workflow, sp_folds)
+sp_fit <- fit(sp_workflow, sp_train)
+
+sp500_truth <- sp500_total_compare %>% select(-c(SP500, month, day, year))
+
+sp500_predicted <- predict(sp_fit, sp500_truth)
+
+#sp_results <- data.frame(sp500_total_compare$SP500, sp500_predicted, (sp500_total_compare$SP500 - sp500_predicted))
+
+sp_results <- data.frame(sp500_total_compare$SP500, sp500_predicted, (1 - (sp500_total_compare$SP500/sp500_predicted)))
+
+sp_results <- sp_results %>% rename("original" = sp500_total_compare.SP500, "predicted" = .pred, "difference" = .pred.1)
+
+#combining all the data back onto one data frame to graph it
+sp_summary <- inner_join(sp500_total_compare, sp_results, c("SP500" = "original"))
+
+ggplot(sp_summary)+
+  geom_line(aes(month, difference, group = 1))
+
+#we can see that the difference between the actual SP500 value and the predicted value increases over time.
+
+#Resampling resulted in issues
+
+#collect_metrics(sp_)
+
+#aal_workflow <- workflow() %>%
+#  add_recipe(aal_recipe) %>%
+ # add_model(lm_model)
+
+#aal_fit <- fit_resamples(aal_workflow, aal_folds)
+
+#collect_metrics(aal_fit)
+
+```
+```{r, Random Company}
+
+#This code generates a model for a (randomly selected) individual company and then presents the difference between the actual stock price in 2017 and the predicted model price.
+
+bt_model <- boost_tree() %>%
+  set_engine("xgboost")
+
+bt_comp_model <- function(random_company) {
+
+comp_data_take2 <- sp500_companies %>%
+  filter(Name == random_company) %>%
+  #filter(day(date) == 7 | day(date) == 21) %>%
+  #i could also use epiweek() or isoweek() for different week interpretations
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #group_by(year(date)) %>%
+  #group_by(week(date)) %>%
+  #Creating a variable for the percent change in volume from the previous snap
+  mutate(volume_change = (volume/lag(volume) - 1) * 100) %>%
+  #Creating a variable for the percent change in closing price from the previous snap
+  mutate(price_change = (close/lag(close) - 1) * 100) %>%
+  #Creating a variable for the percent range between highest and lowest price from the previous snap
+  mutate(prev_hilo = (((lag(high)/lag(low)) - 1) * 100)) %>%
+  #Creating a variable for the percent range between the open and closing price from the previous snap
+  mutate(prev_openclose = (((lag(close)/lag(open)) - 1) * 100)) %>%
+  select(-c(date, Name, Name.y, Sector, open, high, low, close, volume)) %>%
+  na.omit(c(volume_change, price_change, prev_hilo, prev_openclose))
+
+comp_split <- comp_data_take2 %>%
+  initial_split(prop = .8, strata = price_change, na.rm = TRUE)
+
+comp_train <- training(comp_split)
+
+comp_test <- testing(comp_split)
+
+comp_recipe <- recipe(price_change ~ ., data = comp_train) %>%
+  #center and scaling
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+#prep(comp_recipe) %>%
+#  juice()
+
+comp_workflow <- workflow() %>%
+  add_recipe(comp_recipe) %>%
+  add_model(bt_model)
+
+#folding the data
+#comp_folds <- vfold_cv(comp_train, v = 5, repeats = 3)
+
+#comp_fit <- fit_resamples(comp_workflow, comp_folds)
+
+comp_fit <- fit(comp_workflow, comp_train)
+
+comp_truth <- sp500_comp_compare %>%
+  filter(Name == random_company) %>%
+  #filter(day(date) == 7 | day(date) == 21) %>%
+  #i could also use epiweek() or isoweek() for different week interpretations
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #group_by(year(date)) %>%
+  #group_by(week(date)) %>%
+  #Creating a variable for the percent change in volume from the previous snap
+  mutate(volume_change = (volume/lag(volume) - 1) * 100) %>%
+  #Creating a variable for the percent range between highest and lowest price from the previous snap
+  mutate(prev_hilo = (((lag(high)/lag(low)) - 1) * 100)) %>%
+  #Creating a variable for the percent range between the open and closing price from the previous snap
+  mutate(prev_openclose = (((lag(close)/lag(open)) - 1) * 100)) %>%
+  select(-c(date, Name, Name.y, Sector, open, high, low, close, volume))
+  
+
+true_price_change <- sp500_comp_compare %>%
+  filter(Name == random_company) %>%
+  #filter(day(date) == 7 | day(date) == 21) %>%
+  #i could also use epiweek() or isoweek() for different week interpretations
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #group_by(year(date)) %>%
+  #group_by(week(date)) %>%
+  #Creating a variable for the percent change in closing price from the previous snap
+  mutate(price_change = (close/lag(close) - 1) * 100)
+
+comp_predicted <- predict(comp_fit, comp_truth)
+
+comp_results <- data.frame(true_price_change$price_change, comp_predicted,(((true_price_change$price_change/comp_predicted) - 1)))
+
+#volume, high and low aren't knowable before the close happens
+#use snapshots in time for the individual company data
+#get the percent change in the dataset instead (14 day change)
+#realign closing price with previous day information
+#sketch out dataset: what should be here?
+#narrow question - focus on percent change ACROSS models instead of focusing on ranking (unless for the final model)
+
+comp_results <- comp_results %>% rename("original" = true_price_change.price_change, "predicted" = .pred, "difference" = .pred.1)
+
+#combining all the data back onto one data frame to graph it
+comp_summary <- inner_join(true_price_change, comp_results, c("price_change" = "original"))
+
+#print(comp_results)
+
+#ggplot(comp_summary)+
+#  geom_line(aes(date, difference)) #+
+#  labs(title = comp_summary$Name.y)
+
+ggplot(comp_summary)+
+  geom_line(aes(date, price_change), color = "red") +
+  geom_line(aes(date, predicted), color = "blue") +
+  #geom_line(aes(date, difference)) +
+  labs(title = comp_summary$Name.y, subtitle = "Boosted tree model", y = "Percent", x = "Date")
+
+}
+
+lm_comp_model <- function(random_company) {
+
+comp_data_take2 <- sp500_companies %>%
+  filter(Name == random_company) %>%
+  #filter(day(date) == 7 | day(date) == 21) %>%
+  #i could also use epiweek() or isoweek() for different week interpretations
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #group_by(year(date)) %>%
+  #group_by(week(date)) %>%
+  #Creating a variable for the percent change in volume from the previous snap
+  mutate(volume_change = (volume/lag(volume) - 1) * 100) %>%
+  #Creating a variable for the percent change in closing price from the previous snap
+  mutate(price_change = (close/lag(close) - 1) * 100) %>%
+  #Creating a variable for the percent range between highest and lowest price from the previous snap
+  mutate(prev_hilo = (((lag(high)/lag(low)) - 1) * 100)) %>%
+  #Creating a variable for the percent range between the open and closing price from the previous snap
+  mutate(prev_openclose = (((lag(close)/lag(open)) - 1) * 100)) %>%
+  select(-c(date, Name, Name.y, Sector, open, high, low, close, volume)) %>%
+  na.omit(c(volume_change, price_change, prev_hilo, prev_openclose))
+
+comp_split <- comp_data_take2 %>%
+  initial_split(prop = .8, strata = price_change, na.rm = TRUE)
+
+comp_train <- training(comp_split)
+
+comp_test <- testing(comp_split)
+
+comp_recipe <- recipe(price_change ~ ., data = comp_train) %>%
+  #center and scaling
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+#prep(comp_recipe) %>%
+#  juice()
+
+comp_workflow <- workflow() %>%
+  add_recipe(comp_recipe) %>%
+  add_model(lm_model)
+
+#folding the data
+#comp_folds <- vfold_cv(comp_train, v = 5, repeats = 3)
+
+#comp_fit <- fit_resamples(comp_workflow, comp_folds)
+
+comp_fit <- fit(comp_workflow, comp_train)
+
+comp_truth <- sp500_comp_compare %>%
+  filter(Name == random_company) %>%
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #Creating a variable for the percent change in volume from the previous snap
+  mutate(volume_change = (volume/lag(volume) - 1) * 100) %>%
+  #Creating a variable for the percent change in closing price from the previous snap
+  #mutate(price_change = (close/lag(close) - 1) * 100) %>%
+  #Creating a variable for the percent range between highest and lowest price from the previous snap
+  mutate(prev_hilo = (((lag(high)/lag(low)) - 1) * 100)) %>%
+  #Creating a variable for the percent range between the open and closing price from the previous snap
+  mutate(prev_openclose = (((lag(close)/lag(open)) - 1) * 100)) %>%
+  select(-c(date, Name, Name.y, Sector, open, high, low, close, volume))
+  
+
+true_price_change <- sp500_comp_compare %>%
+  filter(Name == random_company) %>%
+  #i could also use epiweek() or isoweek() for different week interpretations
+  filter(mod(week(date), 2) == 0) %>%
+  filter(wday(date) == 2) %>%
+  #Creating a variable for the percent change in closing price from the previous snap
+  mutate(price_change = (close/lag(close) - 1) * 100)
+
+comp_predicted <- predict(comp_fit, comp_truth)
+
+comp_results <- data.frame(true_price_change$price_change, comp_predicted,(((true_price_change$price_change/comp_predicted) - 1)))
+
+#volume, high and low aren't knowable before the close happens
+#use snapshots in time for the individual company data
+#get the percent change in the dataset instead (14 day change)
+#realign closing price with previous day information
+#sketch out dataset: what should be here?
+#narrow question - focus on percent change ACROSS models instead of focusing on ranking (unless for the final model)
+
+comp_results <- comp_results %>% rename("original" = true_price_change.price_change, "predicted" = .pred, "difference" = .pred.1)
+
+#combining all the data back onto one data frame to graph it
+comp_summary <- inner_join(true_price_change, comp_results, c("price_change" = "original"))
+
+#print(comp_results)
+
+#ggplot(comp_summary)+
+#  geom_line(aes(date, difference)) #+
+#  labs(title = comp_summary$Name.y)
+
+ggplot(comp_summary)+
+  geom_line(aes(date, price_change), color = "red") +
+  geom_line(aes(date, predicted), color = "blue") +
+  #geom_line(aes(date, difference)) +
+  labs(title = comp_summary$Name.y, subtitle = "Linear regression", y = "Percent", x = "Date")
+
+}
+
+random_company <- sample(sp500_companies$Name, 1)
+print(random_company)
+lm_comp_model(random_company)
+bt_comp_model(random_company)
+
+random_company_list <- as.list(sample(sp500_companies$Name, 5))
+
+#for (i in random_company_list) {
+#  random_company = i
+#  print(random_company) %>%
+#  comp_model()
+
+#fold maybe four or five times
+#make functions more efficient - hand off split data and folds!
+#finding each company's best model - "an ensamble model" and aggregating that data - trends in models for sectors (or maybe not)
+#knn model!! elastic-net model!! (pick this for third) tune them!! (maybe? your data is small, focus on boosted tree boosting)
+
+#take...
+#formal regression class!!
+#more python!
+#social media and cultural analytics (and data for social good)
+#IMC
+
+#use this for next quarter's project for data viz
+
+#using yardstick to pick which model had the best metrics for each company
+#chapter 10 - getting metrics out of resampled objects
+#get metrics from original split data
+#then bring in new data - just use the model created from the resampled data
+
+
+```
+Interesting findings:
+- the S&P 500 model is, on the whole, more accurate (the difference, in percentage is smaller than the same difference with individual stocks), but it becomes less accurate in one direction over time.
+- the individual stock models are, on the whole, less accurate (occasionally being much more so than the S&P 500 model), but there is much more variability in their accuracy over time vs the total model. This is likely because the S&P500 as a whole has a general upward trend, versus indivudual stocks have a lot more shifting (and also, likely because there's more data)
+
+```{r, Random Sector}
+
+#This code generates a model for a (randomly selected) individual company and then presents the difference between the actual stock price in 2017 and the predicted model price.
+
+random_sector <- sample(sp500_companies$Sector, 1)
+
+print(random_sector)
+
+sector_model <- function(random_sector) {
+
+sect_data <- sp500_companies %>%
+  filter(Sector == random_sector) %>%
+  select(-c(date, Name, Name.y, Sector))
+
+sect_split <- sect_data %>%
+  initial_split(prop = .8, strata = close)
+
+sect_train <- training(sect_split)
+
+sect_test <- testing(sect_split)
+
+sect_recipe <- recipe(close ~ ., data = sect_train) %>%
+#center and scaling
+step_center(all_predictors()) %>%
+step_scale(all_predictors())
+
+#testing it out with prep (we would normally use fit)
+#prep(sect_recipe) %>%
+#  juice()
+
+sect_workflow <- workflow() %>%
+  add_recipe(sect_recipe) %>%
+  add_model(lm_model)
+
+sect_fit <- fit(sect_workflow, sect_train)
+
+sect_truth <- sp500_comp_compare %>% filter(Sector == random_sector) %>% select(-c(Name, Name.y, Sector, date, close))
+
+sect_data <- sp500_comp_compare %>% filter(Sector == random_sector)
+
+sect_predicted <- predict(sect_fit, sect_truth)
+
+#comp_results <- data.frame(comp_data$close, comp_predicted, (comp_data$close - comp_predicted))
+
+sect_results <- data.frame(sect_data$close, sect_predicted, (1 - (sect_data$close/sect_predicted)))
+
+sect_results <- sect_results %>% rename("original" = sect_data.close, "predicted" = .pred, "difference" = .pred.1)
+
+#combining all the data back onto one data frame to graph it
+sect_summary <- inner_join(sect_data, sect_results, c("close" = "original"))
+
+#averaging the differences for a particular day across all the companies in that sector on the S&P 500
+
+sect_summary <- sect_summary %>% group_by(date) %>% mutate(difference = mean(difference))
+
+#print(sect_results)
+
+ggplot(sect_summary)+
+  geom_line(aes(date, difference)) +
+  labs(title = sect_summary$Sector)
+
+#sect_summary <- sect_summary %>% group_by(date) %>% mutate(close = mean(close), predicted = mean(predicted))
+
+#ggplot(sect_summary)+
+#  geom_line(aes(date, close), color = "darkred") +
+#  geom_line(aes(date, predicted), color = "blue") +
+#  labs(title = sect_summary$Sector)
+}
+
+random_sector <- sample(sp500_companies$Sector, 1)
+print(random_sector)
+sector_model(random_sector)
+
+random_sector_list <- as.list(sample(sp500_companies$Sector, 5))
+
+for (i in random_company_list) {
+  random_company = i
+  comp_model(random_company)
+}
+
+```
